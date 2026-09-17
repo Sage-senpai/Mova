@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* System font stacks — no webfont network fetch required at build or
+     runtime. Picks up a distinctive geometric sans where installed
+     (Avenir Next / Century Gothic), otherwise falls back cleanly. */
+  --font-sans: "Avenir Next", "Century Gothic", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "IBM Plex Mono", "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+html,
+body {
+  background-color: #0b0c0e;
+  color: #f4f1ec;
+}
+
+* {
+  box-sizing: border-box;
+}

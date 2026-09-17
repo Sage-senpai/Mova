@@ -1,0 +1,17 @@
+{
+  "name": "mova",
+  "private": true,
+  "description": "Intent-driven payment orchestration between African local rails and Pollar/BOB settlement.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @mova/web dev",
+    "build": "pnpm -r --if-present run build",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp"]
+  }
+}

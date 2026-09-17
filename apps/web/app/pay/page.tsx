@@ -1,0 +1,410 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { BigAmount, Button, CapabilityBadge, Field, RouteHops } from "@mova/ui";
+import type { PaymentState, Route } from "@mova/domain";
+import { canTransition } from "@mova/domain";
+import { TopNav } from "../components/TopNav";
+import {
+  DEFAULT_DRAFT,
+  buildIntent,
+  discoverRealRoutes,
+  formatEta,
+  routeLabel,
+  saveTransaction,
+  type DraftIntent,
+} from "./intentMath";
+
+type Step = "create" | "discovering" | "routes" | "authorize" | "settlement" | "receipt";
+
+const SETTLEMENT_STEPS: { state: PaymentState; label: string }[] = [
+  { state: "FUNDING", label: "Funding" },
+  { state: "FUNDED", label: "Funding" },
+  { state: "SETTLING", label: "Settling" },
+  { state: "DESTINATION_PENDING", label: "Delivering" },
+  { state: "COMPLETED", label: "Complete" },
+];
+
+export default function PayPage() {
+  const [step, setStep] = useState<Step>("create");
+  const [draft, setDraft] = useState<DraftIntent>(DEFAULT_DRAFT);
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [intentId, setIntentId] = useState<string>("");
+  const [expirySeconds, setExpirySeconds] = useState(30);
+  const [paymentState, setPaymentState] = useState<PaymentState>("CREATED");
+
+  const selectedRoute = routes.find((r) => r.id === selectedRouteId) ?? routes[0];
+
+  async function handleCreate() {
+    setStep("discovering");
+    const intent = buildIntent(draft);
+    setIntentId(intent.id);
+    // Real @mova/routing-engine scoring against the three MOCK rail
+    // implementations — not a simplified re-derivation of that logic.
+    const found = await discoverRealRoutes(intent);
+    setRoutes(found);
+    setSelectedRouteId(found[0]?.id ?? null);
+    setPaymentState("QUOTED");
+    setStep("routes");
+  }
+
+  // Authorization expiry countdown
+  useEffect(() => {
+    if (step !== "authorize") return;
+    setExpirySeconds(30);
+    const id = setInterval(() => {
+      setExpirySeconds((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [step]);
+
+  // Settlement state machine playback
+  useEffect(() => {
+    if (step !== "settlement") return;
+    let i = 0;
+    setPaymentState("FUNDING");
+    const id = setInterval(() => {
+      i += 1;
+      const next = SETTLEMENT_STEPS[Math.min(i, SETTLEMENT_STEPS.length - 1)]!.state;
+      setPaymentState((prev) => (canTransition(prev, next) ? next : prev));
+      if (next === "COMPLETED") {
+        clearInterval(id);
+        if (selectedRoute) {
+          saveTransaction({
+            intentId,
+            draft,
+            route: selectedRoute,
+            createdAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          });
+        }
+        setTimeout(() => setStep("receipt"), 900);
+      }
+    }, 1100);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  const activeHopIndex = useMemo(() => {
+    switch (paymentState) {
+      case "FUNDING":
+      case "FUNDED":
+        return 0;
+      case "SETTLING":
+        return 1;
+      case "DESTINATION_PENDING":
+        return 2;
+      case "COMPLETED":
+        return 3;
+      default:
+        return -1;
+    }
+  }, [paymentState]);
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <TopNav />
+      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-12">
+        {step === "create" && <CreateIntentStep draft={draft} setDraft={setDraft} onContinue={handleCreate} />}
+
+        {step === "discovering" && (
+          <p className="py-24 text-center text-sm uppercase tracking-[0.2em] text-mist">
+            Finding routes…
+          </p>
+        )}
+
+        {step === "routes" && selectedRoute && (
+          <RouteDiscoveryStep
+            routes={routes}
+            selectedId={selectedRoute.id}
+            onSelect={setSelectedRouteId}
+            onContinue={() => setStep("authorize")}
+          />
+        )}
+
+        {step === "authorize" && selectedRoute && (
+          <AuthorizeStep
+            draft={draft}
+            route={selectedRoute}
+            expirySeconds={expirySeconds}
+            onBack={() => setStep("routes")}
+            onAuthorize={() => setStep("settlement")}
+          />
+        )}
+
+        {step === "settlement" && selectedRoute && (
+          <SettlementStep draft={draft} paymentState={paymentState} activeHopIndex={activeHopIndex} />
+        )}
+
+        {step === "receipt" && selectedRoute && (
+          <ReceiptStep draft={draft} route={selectedRoute} intentId={intentId} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function CreateIntentStep({
+  draft,
+  setDraft,
+  onContinue,
+}: {
+  draft: DraftIntent;
+  setDraft: (d: DraftIntent) => void;
+  onContinue: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-lg tracking-wide text-mist">PAY</h1>
+
+      <div>
+        <label className="text-xs uppercase tracking-wider text-mist">Recipient</label>
+        <input
+          className="mt-2 w-full border-b border-white/15 bg-transparent pb-2 text-xl text-paper outline-none focus:border-signal"
+          value={draft.recipientName}
+          onChange={(e) => setDraft({ ...draft, recipientName: e.target.value })}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-6">
+        <div>
+          <label className="text-xs uppercase tracking-wider text-mist">They receive</label>
+          <div className="mt-2 flex items-baseline gap-2 border-b border-white/15 pb-2">
+            <span className="text-mist">{draft.destinationCurrency}</span>
+            <input
+              className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
+              value={draft.theyReceive}
+              onChange={(e) => setDraft({ ...draft, theyReceive: e.target.value })}
+            />
+          </div>
+          <p className="mt-1 text-xs text-mist">Minimum amount</p>
+        </div>
+
+        <div>
+          <label className="text-xs uppercase tracking-wider text-mist">You can spend</label>
+          <div className="mt-2 flex items-baseline gap-2 border-b border-white/15 pb-2">
+            <span className="text-mist">{draft.sourceCurrency}</span>
+            <input
+              className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
+              value={draft.youCanSpend}
+              onChange={(e) => setDraft({ ...draft, youCanSpend: e.target.value })}
+            />
+          </div>
+          <p className="mt-1 text-xs text-mist">Your total spend</p>
+        </div>
+
+        <div>
+          <label className="text-xs uppercase tracking-wider text-mist">Maximum fee</label>
+          <div className="mt-2 flex items-baseline gap-2 border-b border-white/15 pb-2">
+            <span className="text-mist">{draft.sourceCurrency}</span>
+            <input
+              className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
+              value={draft.maxFee}
+              onChange={(e) => setDraft({ ...draft, maxFee: e.target.value })}
+            />
+          </div>
+          <p className="mt-1 text-xs text-mist">Include fees</p>
+        </div>
+
+        <div>
+          <label className="text-xs uppercase tracking-wider text-mist">Complete within</label>
+          <div className="mt-2 flex items-baseline gap-2 border-b border-white/15 pb-2">
+            <input
+              type="number"
+              className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
+              value={draft.completeWithinMinutes}
+              onChange={(e) => setDraft({ ...draft, completeWithinMinutes: Number(e.target.value) })}
+            />
+            <span className="text-mist">minutes</span>
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={onContinue} className="mt-4 self-start">
+        Continue
+      </Button>
+    </div>
+  );
+}
+
+function RouteDiscoveryStep({
+  routes,
+  selectedId,
+  onSelect,
+  onContinue,
+}: {
+  routes: Route[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  onContinue: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-8">
+      <div>
+        <h1 className="text-lg tracking-wide text-mist">ROUTING</h1>
+        <p className="mt-1 text-2xl text-paper">{routes.length} viable routes found</p>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        {routes.map((route, i) => {
+          const isSelected = route.id === selectedId;
+          return (
+            <button
+              key={route.id}
+              onClick={() => onSelect(route.id)}
+              className={`rounded-md border p-5 text-left transition-colors ${
+                isSelected ? "border-signal bg-panel" : "border-white/10 hover:border-white/25"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-mist">{routeLabel(route)}</span>
+                {i === 0 ? (
+                  <span className="rounded-sm bg-ok/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-ok">
+                    Best value
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-4 grid grid-cols-4 gap-3">
+                <Field label="ETA" value={formatEta(route.estimatedDurationSeconds)} />
+                <Field label="Fee" value={`₦${route.fee}`} />
+                <Field label="Receive" value={`Bs ${route.expectedReceived}`} />
+                <Field label="Confidence" value={`${(route.confidence * 100).toFixed(1)}%`} />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <Button onClick={onContinue} className="self-start">
+        Continue
+      </Button>
+    </div>
+  );
+}
+
+function AuthorizeStep({
+  draft,
+  route,
+  expirySeconds,
+  onBack,
+  onAuthorize,
+}: {
+  draft: DraftIntent;
+  route: Route;
+  expirySeconds: number;
+  onBack: () => void;
+  onAuthorize: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-lg tracking-wide text-mist">YOU ARE AUTHORIZING</h1>
+
+      <div className="rounded-md border border-white/10 bg-panel p-6">
+        <div className="grid grid-cols-2 gap-6">
+          <Field label="Recipient" value={draft.recipientName} mono={false} />
+          <Field label="Expires" value={`${expirySeconds}s`} />
+          <Field label="Minimum received" value={`Bs ${draft.theyReceive}`} />
+          <Field label="Maximum fee" value={`₦${draft.maxFee}`} />
+        </div>
+        <div className="mt-6 border-t border-white/10 pt-4">
+          <span className="text-[11px] uppercase tracking-[0.14em] text-mist">Route</span>
+          <p className="mt-1 font-mono text-sm text-paper">{routeLabel(route)}</p>
+        </div>
+      </div>
+
+      <div className="flex gap-4">
+        <Button onClick={onAuthorize} disabled={expirySeconds === 0}>
+          Authorize
+        </Button>
+        <Button variant="secondary" onClick={onBack}>
+          Change route
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SettlementStep({
+  draft,
+  paymentState,
+  activeHopIndex,
+}: {
+  draft: DraftIntent;
+  paymentState: PaymentState;
+  activeHopIndex: number;
+}) {
+  const hopLabels = ["Nigeria", "MOVA", "Pollar", "Bolivia"];
+  const hops = hopLabels.map((label, i) => ({
+    label,
+    active: i === activeHopIndex,
+    done: i < activeHopIndex,
+  }));
+
+  return (
+    <div className="flex flex-col items-center gap-12 py-12 text-center">
+      <BigAmount currencySymbol={draft.sourceCurrency} amount={draft.youCanSpend} size="xl" />
+      <div className="w-full max-w-md">
+        <RouteHops hops={hops} />
+      </div>
+      <p className="font-mono text-sm uppercase tracking-[0.2em] text-signal">
+        {paymentState.replace(/_/g, " ")}
+      </p>
+    </div>
+  );
+}
+
+function ReceiptStep({
+  draft,
+  route,
+  intentId,
+}: {
+  draft: DraftIntent;
+  route: Route;
+  intentId: string;
+}) {
+  return (
+    <div className="flex flex-col gap-8 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-ok text-ok">
+        ✓
+      </div>
+      <h1 className="text-lg tracking-wide text-mist">PAYMENT COMPLETE</h1>
+
+      <div>
+        <p className="text-sm text-mist">{draft.recipientName.split(" ")[0]} received</p>
+        <BigAmount
+          currencySymbol={`${draft.destinationCurrency} `}
+          amount={route.expectedReceived}
+          size="xl"
+        />
+      </div>
+
+      <div className="mx-auto grid grid-cols-3 gap-8">
+        <Field label="You paid" value={`${draft.sourceCurrency}${draft.youCanSpend}`} />
+        <Field label="Fee" value={`₦${route.fee}`} />
+        <Field label="Settlement" value={formatEta(route.estimatedDurationSeconds)} />
+      </div>
+
+      <div className="mx-auto flex items-center gap-2">
+        <CapabilityBadge capability="MOCK" />
+        <span className="text-xs text-mist">Mock rail quote — see docs/architecture.md §8</span>
+      </div>
+
+      <div className="flex justify-center gap-4">
+        <Link
+          href={`/transactions/${intentId}`}
+          className="rounded-sm border border-white/15 px-6 py-3 text-sm text-paper transition-colors hover:border-white/30"
+        >
+          View transaction details
+        </Link>
+        <Link
+          href="/home"
+          className="rounded-sm bg-paper px-6 py-3 text-sm font-medium text-ink transition-colors hover:bg-white"
+        >
+          Done
+        </Link>
+      </div>
+    </div>
+  );
+}
