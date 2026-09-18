@@ -2,18 +2,23 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePollar } from "@pollar/react";
 import { BigAmount, Button, CapabilityBadge, Field, RouteHops } from "@mova/ui";
 import type { Capability } from "@mova/ui";
 import type { PaymentIntent, PaymentState, Route } from "@mova/domain";
 import { canTransition } from "@mova/domain";
 import { TopNav } from "../components/TopNav";
+import { WalletConnectPanel } from "./WalletConnectPanel";
 import {
   DEFAULT_DRAFT,
   buildIntent,
+  demoNativeSendAmount,
   discoverRealRoutes,
   formatEta,
   routeLabel,
   saveTransaction,
+  spendFromTheyReceive,
+  theyReceiveFromSpend,
   type DraftIntent,
 } from "./intentMath";
 
@@ -35,6 +40,14 @@ const IDLE_HANDOFF: PollarHandoff = {
   explorerUrl: null,
 };
 
+type RealSend = {
+  status: "idle" | "sending" | "sent" | "skipped" | "error";
+  hash: string | null;
+  amount: string | null;
+};
+
+const IDLE_SEND: RealSend = { status: "idle", hash: null, amount: null };
+
 const SETTLEMENT_STEPS: { state: PaymentState; label: string }[] = [
   { state: "FUNDING", label: "Funding" },
   { state: "FUNDED", label: "Funding" },
@@ -53,6 +66,8 @@ export default function PayPage() {
   const [expirySeconds, setExpirySeconds] = useState(30);
   const [paymentState, setPaymentState] = useState<PaymentState>("CREATED");
   const [pollarHandoff, setPollarHandoff] = useState<PollarHandoff>(IDLE_HANDOFF);
+  const [realSend, setRealSend] = useState<RealSend>(IDLE_SEND);
+  const { isAuthenticated, sendPayment } = usePollar();
 
   const selectedRoute = routes.find((r) => r.id === selectedRouteId) ?? routes[0];
 
@@ -88,13 +103,15 @@ export default function PayPage() {
     if (step !== "settlement" || !intent) return;
     let cancelled = false;
     setPollarHandoff({ ...IDLE_HANDOFF, status: "loading" });
+    setRealSend(IDLE_SEND);
+
     fetch("/api/pollar-handoff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ intent }),
     })
       .then((res) => res.json())
-      .then((data) => {
+      .then(async (data) => {
         if (cancelled) return;
         setPollarHandoff({
           status: "done",
@@ -103,6 +120,33 @@ export default function PayPage() {
           providerRef: data.providerRef ?? null,
           explorerUrl: data.explorerUrl ?? null,
         });
+
+        // The real leg: only possible once a Pollar wallet is connected
+        // client-side (see WalletConnectPanel) — per Pollar's own Security
+        // Model, only a live user-signed session can move funds, never the
+        // server-side secret key that created data.providerRef above.
+        if (!data.real || !isAuthenticated) {
+          setRealSend({ ...IDLE_SEND, status: "skipped" });
+          return;
+        }
+
+        const amount = demoNativeSendAmount(draft.youCanSpend);
+        setRealSend({ status: "sending", hash: null, amount });
+        try {
+          const outcome = await sendPayment({
+            destination: data.providerRef,
+            amount,
+            asset: { type: "native" },
+          });
+          if (cancelled) return;
+          if (outcome.status === "error") {
+            setRealSend({ status: "error", hash: null, amount });
+          } else {
+            setRealSend({ status: "sent", hash: outcome.hash, amount });
+          }
+        } catch {
+          if (!cancelled) setRealSend({ status: "error", hash: null, amount });
+        }
       })
       .catch(() => {
         if (!cancelled) setPollarHandoff({ ...IDLE_HANDOFF, status: "error" });
@@ -110,6 +154,7 @@ export default function PayPage() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, intent]);
 
   // Settlement state machine playback
@@ -192,11 +237,18 @@ export default function PayPage() {
             paymentState={paymentState}
             activeHopIndex={activeHopIndex}
             pollarHandoff={pollarHandoff}
+            realSend={realSend}
           />
         )}
 
         {step === "receipt" && selectedRoute && (
-          <ReceiptStep draft={draft} route={selectedRoute} intentId={intentId} pollarHandoff={pollarHandoff} />
+          <ReceiptStep
+            draft={draft}
+            route={selectedRoute}
+            intentId={intentId}
+            pollarHandoff={pollarHandoff}
+            realSend={realSend}
+          />
         )}
       </main>
     </div>
@@ -214,7 +266,10 @@ function CreateIntentStep({
 }) {
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-lg tracking-wide text-mist">PAY</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg tracking-wide text-mist">PAY</h1>
+        <WalletConnectPanel />
+      </div>
 
       <div>
         <label className="text-xs uppercase tracking-wider text-mist">Recipient</label>
@@ -233,10 +288,12 @@ function CreateIntentStep({
             <input
               className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
               value={draft.theyReceive}
-              onChange={(e) => setDraft({ ...draft, theyReceive: e.target.value })}
+              onChange={(e) =>
+                setDraft({ ...draft, theyReceive: e.target.value, youCanSpend: spendFromTheyReceive(e.target.value) })
+              }
             />
           </div>
-          <p className="mt-1 text-xs text-mist">Minimum amount</p>
+          <p className="mt-1 text-xs text-mist">Minimum amount · auto-updates spend</p>
         </div>
 
         <div>
@@ -246,10 +303,12 @@ function CreateIntentStep({
             <input
               className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
               value={draft.youCanSpend}
-              onChange={(e) => setDraft({ ...draft, youCanSpend: e.target.value })}
+              onChange={(e) =>
+                setDraft({ ...draft, youCanSpend: e.target.value, theyReceive: theyReceiveFromSpend(e.target.value) })
+              }
             />
           </div>
-          <p className="mt-1 text-xs text-mist">Your total spend</p>
+          <p className="mt-1 text-xs text-mist">Your total spend · auto-updates receive</p>
         </div>
 
         <div>
@@ -388,11 +447,13 @@ function SettlementStep({
   paymentState,
   activeHopIndex,
   pollarHandoff,
+  realSend,
 }: {
   draft: DraftIntent;
   paymentState: PaymentState;
   activeHopIndex: number;
   pollarHandoff: PollarHandoff;
+  realSend: RealSend;
 }) {
   const hopLabels = ["Nigeria", "MOVA", "Pollar", "Bolivia"];
   const hops = hopLabels.map((label, i) => ({
@@ -411,6 +472,36 @@ function SettlementStep({
         {paymentState.replace(/_/g, " ")}
       </p>
       <PollarHandoffStatus handoff={pollarHandoff} />
+      <RealSendStatus send={realSend} />
+    </div>
+  );
+}
+
+/** The client-signed leg: only runs when a wallet is connected. Distinct
+ * from PollarHandoffStatus, which is the server-side wallet creation — this
+ * is the actual payment operation, built -> signed -> submitted by the
+ * connected wallet, never by MOVA's backend. */
+function RealSendStatus({ send }: { send: RealSend }) {
+  if (send.status === "idle" || send.status === "skipped") return null;
+  if (send.status === "sending") {
+    return <p className="text-xs text-mist">Signing and submitting {send.amount} XLM…</p>;
+  }
+  if (send.status === "error") {
+    return <p className="text-xs text-err">The connected wallet's send failed or was declined.</p>;
+  }
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <p className="text-xs text-ok">Sent {send.amount} XLM from your connected wallet, real testnet transfer</p>
+      {send.hash ? (
+        <a
+          href={`https://stellar.expert/explorer/testnet/tx/${send.hash}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-signal underline underline-offset-2"
+        >
+          View transaction →
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -455,11 +546,13 @@ function ReceiptStep({
   route,
   intentId,
   pollarHandoff,
+  realSend,
 }: {
   draft: DraftIntent;
   route: Route;
   intentId: string;
   pollarHandoff: PollarHandoff;
+  realSend: RealSend;
 }) {
   return (
     <div className="flex flex-col gap-8 text-center">
@@ -507,8 +600,26 @@ function ReceiptStep({
               View real Stellar testnet wallet →
             </a>
           ) : (
-            <span className="text-xs text-mist">Simulated — see docs/pollar-integration.md</span>
+            <span className="text-xs text-mist">Simulated, see docs/pollar-integration.md</span>
           )}
+        </div>
+      ) : null}
+
+      {realSend.status === "sent" ? (
+        <div className="mx-auto flex flex-col items-center gap-2 rounded-md border border-ok/30 bg-panel p-4">
+          <span className="text-xs text-ok">
+            {realSend.amount} XLM sent from your wallet, real testnet transaction
+          </span>
+          {realSend.hash ? (
+            <a
+              href={`https://stellar.expert/explorer/testnet/tx/${realSend.hash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-signal underline underline-offset-2"
+            >
+              View transaction →
+            </a>
+          ) : null}
         </div>
       ) : null}
 

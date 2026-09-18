@@ -80,6 +80,28 @@ must be real — see [pollar-integration.md](pollar-integration.md).
 provider capability for a better demo.
 **Status**: Accepted. Owner: Pollar Engineer, cross-checked by Architect.
 
+## ADR-009: Client-side send via a connected Pollar wallet, additive not required
+
+**Context**: ADR-008 established that a secret key can create/fund a
+wallet but can never move funds, per Pollar's own Security Model. The
+only way to make the send leg genuinely real is a live, user-signed
+client session.
+**Decision**: `apps/web` wraps the app in `PollarProvider` and adds a
+"Connect wallet" step to Screen 03. When connected, settlement performs
+a real `sendPayment()` from the user's own session to the real recipient
+address created server-side. When not connected, the flow is unchanged
+from before, the send is labeled "skipped," never faked.
+**Why**: This is additive, not a required step, so the demo never
+depends on a judge going through a login flow to see the rest of the
+product work. It also means the honest fallback path (already required
+by ADR-004/006/008) stays exercised and visible.
+**Status**: Accepted. Code shipped, typechecked, and built; the actual
+login/send click-through could not be verified end to end in this
+session (no browser automation available) and may need the app's
+Domains allowlist (Dashboard → Build → Domains) updated for
+`mova-rails.vercel.app` before it works in production — same category
+of one-time dashboard step as ADR-008's treasury funding.
+
 ## ADR-008: Real Pollar wallet creation/funding, secret key server-side only
 
 **Context**: Real testnet credentials (`pub_testnet_...` / `sec_testnet_...`)

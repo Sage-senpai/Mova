@@ -31,6 +31,46 @@ const CURRENCY_CODE: Record<string, string> = {
 };
 
 /**
+ * Same illustrative NGN:BOB ratio the mock rails use (see
+ * packages/payment-rails/bank/src/index.ts's ILLUSTRATIVE_RATES) — kept in
+ * sync here so the create-intent form's live auto-calculation and the
+ * routing engine's quotes land in the same ballpark. Not a real FX rate.
+ */
+const ILLUSTRATIVE_NGN_BOB_RATE = 0.0133;
+
+function parseAmount(value: string): number {
+  const n = Number.parseFloat(value.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatAmount(n: number): string {
+  return Math.max(0, Math.round(n)).toLocaleString("en-US");
+}
+
+/** They-receive (BOB) from you-can-spend (NGN), for the create-intent form's
+ * live two-way auto-calculation. Illustrative rate, not a real quote — the
+ * real per-rail quote happens later in route discovery. */
+export function theyReceiveFromSpend(youCanSpendNgn: string): string {
+  return formatAmount(parseAmount(youCanSpendNgn) * ILLUSTRATIVE_NGN_BOB_RATE);
+}
+
+/** The inverse of theyReceiveFromSpend, for editing the "they receive" field directly. */
+export function spendFromTheyReceive(theyReceiveBob: string): string {
+  return formatAmount(parseAmount(theyReceiveBob) / ILLUSTRATIVE_NGN_BOB_RATE);
+}
+
+/**
+ * A small, real testnet XLM amount to actually send when a Pollar wallet is
+ * connected, automatically derived from the NGN amount rather than a fixed
+ * constant. Clamped to a demo-safe range (0.5-3 XLM) so this never tries to
+ * drain more than a freshly-funded testnet wallet realistically holds.
+ */
+export function demoNativeSendAmount(youCanSpendNgn: string): string {
+  const scaled = parseAmount(youCanSpendNgn) / 75_000;
+  return Math.min(3, Math.max(0.5, scaled)).toFixed(2);
+}
+
+/**
  * Builds a real PaymentIntent from the create-intent form. Amounts are
  * decimal strings throughout (ADR-005) — the ₦/Bs symbols are display-only
  * and mapped to ISO-ish currency codes for the domain/rail layer.

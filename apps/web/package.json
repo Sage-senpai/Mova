@@ -19,6 +19,8 @@
     "@mova/routing-engine": "workspace:*",
     "@mova/settlement-pollar": "workspace:*",
     "@mova/ui": "workspace:*",
+    "@pollar/core": "^0.11.3",
+    "@pollar/react": "^0.11.3",
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

@@ -120,13 +120,43 @@ rather than silently presented as automated. This keeps Screen 06 (Live
 Settlement) truthful about what actually executed versus what's
 illustrative.
 
+## Client-side send: connect wallet, sign for real
+
+Shipped 2026-09-18. `apps/web` now wraps the app in `PollarProvider`
+(`@pollar/react`, publishable key only) and Screen 03's create-intent
+form has a "Connect Pollar wallet (testnet)" button
+(`app/pay/WalletConnectPanel.tsx`) that opens Pollar's own login modal
+(social, email OTP, or passkey — whichever methods the dashboard has
+enabled).
+
+Once connected, the settlement step does something the server-side
+secret key architecturally cannot: it calls `sendPayment()` from the
+connected wallet's own signed session, sending a real, automatically
+sized native-XLM payment (derived from the entered NGN amount, see
+`demoNativeSendAmount()` in `app/pay/intentMath.ts`) to the real Stellar
+testnet address the server just created via `/api/pollar-handoff`. This
+closes the loop end to end: real recipient wallet, real sender wallet,
+real signed transfer between them, both verifiable on a testnet
+explorer.
+
+If no wallet is connected, the flow degrades exactly as before, the
+server-side hand-off still runs and is shown, and the client-side send
+is honestly labeled "skipped" rather than silently omitted.
+
+**One dashboard step this may still need**: Pollar's SDK calls require
+the calling origin to be in the app's allowed Domains list (Dashboard
+→ Build → Domains), the same category of one-time config as the
+treasury top-up earlier. If the login modal or `sendPayment` fails in
+production, check that `mova-rails.vercel.app` (and any other domain
+this is served from) is on that allowlist — this wasn't something an
+agent could configure without dashboard access, so it's untested against
+the live production domain as of this writing.
+
 ## What's FUTURE
 
-- Client-side `@pollar/react` integration (real login + user-signed
-  send) — would make the USDC send leg genuinely real, not just wallet
-  creation. Requires wiring a live browser auth flow (social/email/
-  passkey), which is a larger scope item than the server-side hand-off
-  shipped here.
 - Live production (mainnet) API keys.
 - A confirmed, first-party BOB off-ramp (would need direct confirmation
   from Pollar, not third-party repos).
+- A real quote for the NGN leg itself (Pollar's `getSwapQuote` is real
+  but asset-to-asset on-chain, not fiat-to-fiat — there's no fiat NGN/BOB
+  quote endpoint anywhere in Pollar's public API surface).
