@@ -39,10 +39,55 @@ export default function LandingPage() {
         </div>
       </main>
 
+      <HowItWorks />
+
       <footer className="border-t border-white/5 px-8 py-6 text-xs text-mist md:px-16">
         Local rails · MOVA · Pollar · Global
       </footer>
     </div>
+  );
+}
+
+const STEPS = [
+  {
+    n: "01",
+    title: "Say what you want",
+    body: "Not the mechanics of which rail or chain to use. Just the outcome: pay Carlos at least Bs 2,000, keep the fee under ₦3,000, done in 10 minutes.",
+  },
+  {
+    n: "02",
+    title: "MOVA finds the route",
+    body: "It compares bank, P2P, and stablecoin rails on fee, speed, and reliability, and throws out any route that breaks your rules, not just the cheapest option.",
+  },
+  {
+    n: "03",
+    title: "Policy checks it first",
+    body: "For agent payments, a spending policy (limits, allowed destinations, human-approval threshold) is checked before anything is even quoted.",
+  },
+  {
+    n: "04",
+    title: "Pollar settles it",
+    body: "This is the real part: MOVA hands the settlement leg to Pollar, which creates and funds an actual Stellar wallet on testnet.",
+  },
+];
+
+function HowItWorks() {
+  return (
+    <section className="border-t border-white/5 px-8 py-16 md:px-16">
+      <p className="text-xs uppercase tracking-[0.2em] text-mist">In plain terms</p>
+      <h2 className="mt-3 max-w-xl text-2xl font-medium text-paper">
+        You describe the outcome. MOVA figures out how to make it happen.
+      </h2>
+      <div className="mt-10 grid grid-cols-1 gap-8 md:grid-cols-4">
+        {STEPS.map((step) => (
+          <div key={step.n} className="flex flex-col gap-2">
+            <span className="font-mono text-xs text-signal">{step.n}</span>
+            <h3 className="text-sm font-medium text-paper">{step.title}</h3>
+            <p className="text-sm text-mist">{step.body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

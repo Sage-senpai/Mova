@@ -95,12 +95,15 @@ from before, the send is labeled "skipped," never faked.
 depends on a judge going through a login flow to see the rest of the
 product work. It also means the honest fallback path (already required
 by ADR-004/006/008) stays exercised and visible.
-**Status**: Accepted. Code shipped, typechecked, and built; the actual
-login/send click-through could not be verified end to end in this
-session (no browser automation available) and may need the app's
-Domains allowlist (Dashboard → Build → Domains) updated for
-`mova-rails.vercel.app` before it works in production — same category
-of one-time dashboard step as ADR-008's treasury funding.
+**Status**: Accepted. Code shipped, typechecked, and built. The
+`mova-rails.vercel.app` origin was rejected with `ORIGIN_NOT_ALLOWED`
+until the account owner added it to Dashboard → Build → Domains
+(2026-09-18), confirmed fixed by a direct request to
+`sdk.api.pollar.xyz/v1/applications/config`, which now returns
+`SDK_APPLICATION_CONFIG` success with Google and email login enabled.
+The actual login/send click-through still hasn't been verified end to
+end in this session (no browser automation available here) — that's on
+the account owner to try in a real browser.
 
 ## ADR-008: Real Pollar wallet creation/funding, secret key server-side only
 

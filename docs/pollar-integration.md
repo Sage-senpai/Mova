@@ -120,6 +120,37 @@ rather than silently presented as automated. This keeps Screen 06 (Live
 Settlement) truthful about what actually executed versus what's
 illustrative.
 
+## How MOVA finds a recipient
+
+Worth being explicit about, since it's an easy thing to assume is more
+solved than it is: MOVA does not resolve a recipient's real-world
+identity to a wallet address. A real system does that one of two ways,
+neither of which is "look up their name":
+
+- The recipient already has a wallet, looked up by something that
+  actually identifies them (email, a registered username), never free
+  text.
+- The sender already has the recipient's real wallet address (a Stellar
+  `G...` key) and provides it directly, the same way any crypto transfer
+  works.
+
+What this demo does by default is neither: the typed recipient name is
+just a label. `app/api/pollar-handoff/route.ts` uses it (via
+`recipientIdFromName()` in `app/pay/intentMath.ts`) to provision a
+**brand-new** Pollar-custodied wallet, not to find an existing person.
+Two different names produce two different throwaway wallets; the same
+name typed twice does not resolve to "the same Carlos." This is a real,
+legitimate pattern (Pollar's Deferred funding mode exists for exactly
+this: create a wallet for someone before they've logged in), but it is
+not identity resolution, and the create-intent form says so.
+
+For the honest version, the form also accepts an optional real Stellar
+address. When set, `/api/pollar-handoff` sends to that exact existing
+wallet and skips provisioning entirely, no different from pasting an
+address into any wallet's send screen. This is flagged in
+[security.md](security.md)'s "fake recipient" red-team item, now
+partially closed rather than fully open.
+
 ## Client-side send: connect wallet, sign for real
 
 Shipped 2026-09-18. `apps/web` now wraps the app in `PollarProvider`

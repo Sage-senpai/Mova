@@ -86,8 +86,13 @@ answers each:
 - **Stale route executes** → `Route` is derived from a `Quote`, which
   expires; authorization re-checks `isQuoteExpired()` before `FUNDING`.
 - **Duplicate payment** → nonce uniqueness at the ledger layer.
-- **Fake recipient** → out of scope for the hackathon (no KYC), flagged
-  in [shared/risks.md](shared/risks.md), not silently ignored.
+- **Fake recipient** → full identity verification (KYC) is out of scope
+  for the hackathon, flagged in [shared/risks.md](shared/risks.md). Partially
+  addressed: the create-intent form accepts a real Stellar address as an
+  alternative to name-based wallet provisioning, so a sender who already
+  knows the recipient's real address never needs a name lookup at all —
+  see [pollar-integration.md](pollar-integration.md) "How MOVA finds a
+  recipient."
 - **Provider outage freezes the app** → `routing-engine` treats a rail
   `getQuote()` failure as "route unavailable," not as a fatal app error;
   other rails' quotes still return.

@@ -108,7 +108,10 @@ export default function PayPage() {
     fetch("/api/pollar-handoff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ intent }),
+      body: JSON.stringify({
+        intent,
+        recipientAddress: draft.recipientWalletAddress || undefined,
+      }),
     })
       .then((res) => res.json())
       .then(async (data) => {
@@ -270,6 +273,10 @@ function CreateIntentStep({
         <h1 className="text-lg tracking-wide text-mist">PAY</h1>
         <WalletConnectPanel />
       </div>
+      <p className="text-xs text-mist">
+        Every field below is live. Change the name and amounts to whatever you want. Carlos and
+        ₦150,000 are just a starting example, not a fixed demo.
+      </p>
 
       <div>
         <label className="text-xs uppercase tracking-wider text-mist">Recipient</label>
@@ -278,6 +285,22 @@ function CreateIntentStep({
           value={draft.recipientName}
           onChange={(e) => setDraft({ ...draft, recipientName: e.target.value })}
         />
+      </div>
+
+      <div>
+        <label className="text-xs uppercase tracking-wider text-mist">
+          Recipient wallet address <span className="text-mist/60">(optional)</span>
+        </label>
+        <input
+          className="mt-2 w-full border-b border-white/15 bg-transparent pb-2 font-mono text-sm text-paper outline-none focus:border-signal"
+          placeholder="G... a real Stellar testnet address"
+          value={draft.recipientWalletAddress}
+          onChange={(e) => setDraft({ ...draft, recipientWalletAddress: e.target.value.trim() })}
+        />
+        <p className="mt-1 text-xs text-mist">
+          Leave blank and MOVA provisions a new testnet wallet for the name above. Paste a real
+          address to send to an existing wallet instead, this is how recipients actually get found.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-6">

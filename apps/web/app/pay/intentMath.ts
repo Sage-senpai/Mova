@@ -1,4 +1,4 @@
-import { newIntentId, newUserId, newRecipientId, type PaymentIntent, type PaymentRail, type Route } from "@mova/domain";
+import { newIntentId, newUserId, type PaymentIntent, type PaymentRail, type RecipientId, type Route } from "@mova/domain";
 import { discoverRoutes } from "@mova/routing-engine";
 import { NigerianBankRail } from "@mova/payment-rails-bank";
 import { P2PRail } from "@mova/payment-rails-p2p";
@@ -6,6 +6,10 @@ import { DemoStablecoinRail } from "@mova/payment-rails-stablecoin";
 
 export type DraftIntent = {
   recipientName: string;
+  /** Optional real Stellar G-address. When set, MOVA sends to this exact
+   * existing wallet instead of provisioning a new one for the typed name
+   * — see docs/pollar-integration.md "How MOVA finds a recipient." */
+  recipientWalletAddress: string;
   theyReceive: string;
   destinationCurrency: string;
   youCanSpend: string;
@@ -16,6 +20,7 @@ export type DraftIntent = {
 
 export const DEFAULT_DRAFT: DraftIntent = {
   recipientName: "Carlos Mendoza",
+  recipientWalletAddress: "",
   theyReceive: "2,000",
   destinationCurrency: "Bs",
   youCanSpend: "150,000",
@@ -71,6 +76,25 @@ export function demoNativeSendAmount(youCanSpendNgn: string): string {
 }
 
 /**
+ * A RecipientId derived from whatever name was actually typed into the
+ * form, not a random UUID — this is also the externalId the server-side
+ * Pollar adapter registers on Pollar's Server API (see
+ * app/api/pollar-handoff/route.ts), so the real wallet Pollar creates is
+ * traceably tied to what you entered, not to a fixed "Carlos" example.
+ * Still a plain string underneath the RecipientId brand.
+ */
+function recipientIdFromName(name: string): RecipientId {
+  const slug =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "recipient";
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${slug}-${suffix}` as RecipientId;
+}
+
+/**
  * Builds a real PaymentIntent from the create-intent form. Amounts are
  * decimal strings throughout (ADR-005) — the ₦/Bs symbols are display-only
  * and mapped to ISO-ish currency codes for the domain/rail layer.
@@ -81,7 +105,7 @@ export function buildIntent(draft: DraftIntent): PaymentIntent {
     id: newIntentId(),
     createdAt: new Date().toISOString(),
     sender: { userId: newUserId() },
-    recipient: { recipientId: newRecipientId() },
+    recipient: { recipientId: recipientIdFromName(draft.recipientName) },
     source: {
       country: "NG",
       currency: CURRENCY_CODE[draft.sourceCurrency] ?? draft.sourceCurrency,
