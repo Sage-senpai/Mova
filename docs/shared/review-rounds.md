@@ -24,3 +24,7 @@ lives in each agent's own doc; this file is the map.
 - **Round 5 — product red team**: "why isn't this just X" answers in
   [../product.md](../product.md), Red Team's standing objection in
   [agents/redteam.md](../agents/redteam.md) §Round 5.
+- **Round 6 — post-launch gap review**: with real Pollar credentials
+  live and the app deployed, each agent re-examined the actual running
+  system (not the plan) for what's still not real or not wired up. Full
+  findings and a prioritized punch list in [gap-review.md](gap-review.md).
