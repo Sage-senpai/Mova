@@ -118,7 +118,7 @@ red-team question "can the UI say complete while settlement is pending?"
 
 | Component | Status | Why |
 |---|---|---|
-| Pollar wallet creation/funding (server-side, `createTransfer`) | SANDBOX, code-real | Live `server.api.pollar.xyz` calls with real testnet credentials; currently falls back per-call pending one dashboard step — see [pollar-integration.md](pollar-integration.md) |
+| Pollar wallet creation/funding (server-side, `createTransfer`) | SANDBOX | Live `server.api.pollar.xyz` calls with real testnet credentials, confirmed returning real funded Stellar G-addresses — see [pollar-integration.md](pollar-integration.md) |
 | Pollar quote/send/status | MOCK | No secret-key REST equivalent exists (send requires a user-signed client session, per Pollar's own Security Model) |
 | BOB / Bolivia settlement leg | SEMI_MANUAL | Not confirmed on Pollar's own docs, only third-party hackathon repos — see [open-source-research.md](open-source-research.md) |
 | Nigerian bank rail | MOCK | No live bank integration for the hackathon |

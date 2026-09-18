@@ -215,13 +215,16 @@ async function pollarServerRequest<T>(
 }
 
 /** Tries the handful of plausible key names for the returned wallet's
- * Stellar public key — the with-wallet response shape for the created
- * wallet isn't fully documented, so this is defensive by design. If
- * Pollar's actual shape differs, add it here rather than at call sites. */
+ * Stellar public key. Confirmed live 2026-09-18 against a real success
+ * response once the app's funding wallet was topped up:
+ *   { userId, externalId, walletAddress, funded: true }
+ * `walletAddress` is the real field; the others are kept as defensive
+ * fallbacks in case the shape ever varies (e.g. across funding modes). */
 function extractPublicKey(content: unknown): string | undefined {
   if (!content || typeof content !== "object") return undefined;
   const c = content as Record<string, unknown>;
   const candidates = [
+    c.walletAddress,
     c.publicKey,
     c.address,
     (c.wallet as Record<string, unknown> | undefined)?.publicKey,

@@ -8,8 +8,11 @@ SEMI-MANUAL, or FUTURE — see [architecture.md](architecture.md) §8.
 (`pub_testnet_...` / `sec_testnet_...` from dashboard.pollar.xyz) and the
 server-side wallet creation/funding calls documented below are live —
 verified against `https://docs.pollar.xyz/llms-full.txt` and tested
-directly with `curl` against `server.api.pollar.xyz`. See "Current status"
-below for the one thing blocking a fully green run.
+directly with `curl` against `server.api.pollar.xyz`. **Resolved same
+day**: the app's Stellar funding wallet was topped up (10,000 XLM) via
+the dashboard, and `RealPollarClient.createWallet` now genuinely returns
+`real: true` with an actual funded Stellar testnet G-address — see
+"Current status" below.
 
 ## What Pollar actually is (verified)
 
@@ -44,44 +47,43 @@ so differently:
 | Capability | Status | Evidence |
 |---|---|---|
 | Server-side user registration (`POST /v1/users`) | **SANDBOX** | Live-tested with real `sec_testnet_` key: `201 SERVER_USER_REGISTERED` with a real `userId` |
-| Server-side wallet creation + funding (`POST /v1/users/with-wallet`, `POST /v1/wallets/fund`) | **SANDBOX, code-real / currently blocked** | Real code path, real credentials, real endpoint — see "Current status" below for the one blocker |
+| Server-side wallet creation + funding (`POST /v1/users/with-wallet`) | **SANDBOX, confirmed working** | `201 SERVER_USER_WALLET_CREATED` with a real, funded Stellar testnet G-address. `RealPollarClient.createWallet` returns `real: true` end to end |
 | USDC quote | MOCK | No fiat/USDC quote endpoint exists anywhere in Pollar's docs, secret-key or otherwise. Illustrative flat-fee math only, always labeled `real: false` |
 | USDC send | MOCK (architecturally not automatable headlessly) | Requires a user-signed client SDK session per Pollar's own Security Model — never available to a secret key. `mode: "REAL"` still applies to the wallet-creation call in the same request; send always falls back |
 | Transfer status / history | MOCK | Only exposed via `GET sdk.api.pollar.xyz/v1/tx/history`, which needs an authenticated end-user session — no secret-key equivalent exists |
 | BOB (Bolivian Boliviano) settlement leg | SEMI_MANUAL | Not found on Pollar's own docs — only third-party hackathon repos describe a USDC→BOB off-ramp. The Pollar hackathon admin's own guidance (Telegram, 2026-09-17) confirms this: "for the hackathon, mock the final BOB payout. What we evaluate is that your Nigerian path exists, works and hands off cleanly to Pollar." See [decisions.md](decisions.md) ADR-006 |
 
-## Current status: code is real, one manual step is outstanding
+## Current status: confirmed working end to end
 
 `packages/settlement/pollar/src/pollarClient.ts`'s `RealPollarClient`
 genuinely calls `server.api.pollar.xyz` with the real secret key on
 every `createTransfer`. Verified independently via direct `curl`:
 
 ```
-POST /v1/users                 -> 201 SERVER_USER_REGISTERED  (works)
-POST /v1/users/with-wallet     -> 502 WALLET_CREATION_FAILED  (blocked)
+POST /v1/users               -> 201 SERVER_USER_REGISTERED  (works)
+POST /v1/users/with-wallet   -> 201 SERVER_USER_WALLET_CREATED  (works)
+  { "content": { "userId": "...", "externalId": "...",
+                 "walletAddress": "G...", "funded": true } }
 ```
 
-Per Pollar's Dashboard Overview doc, a fresh app's "Get started"
-checklist includes: *"App wallet created and funded — your funding
-wallet must be active on Stellar with enough XLM to cover wallet
-creation."* This app's funding (treasury) wallet has not yet been
-topped up via the testnet Friendbot. That top-up is a **dashboard-only
-action** (Treasury → Account Funding, or the Pollar MCP gateway's
-`ensure_wallet_funded` tool with a Personal Access Token) — neither is
-reachable with the `pub_`/`sec_` API keys alone, so it could not be
-completed by an agent without dashboard/PAT access.
+This was initially blocked by `502 WALLET_CREATION_FAILED` — per
+Pollar's Dashboard Overview doc, a fresh app's "Get started" checklist
+requires *"App wallet created and funded — your funding wallet must be
+active on Stellar with enough XLM to cover wallet creation."* Resolved
+2026-09-18 by funding the app's treasury wallet (10,000 XLM) via
+Dashboard → Treasury → Account Funding.
 
-**The fix is one dashboard click, not a code change.** Once the app's
-funding wallet is topped up:
-- `RealPollarClient.createWallet` will start returning real Stellar
-  G-addresses instead of falling back.
-- No redeploy is needed — the fallback path and the success path are
-  the same code, gated only by Pollar's own API response.
-- The live demo already surfaces this correctly either way: Screen 06
-  (Live Settlement) and Screen 07 (Receipt) call `/api/pollar-handoff`,
-  which runs the real adapter and shows a real Stellar testnet explorer
-  link when `real: true`, or an honest "Simulated" label when the
-  fallback fired.
+That fix also revealed the real response shape — `content.walletAddress`,
+not `content.publicKey` as originally guessed defensively — now reflected
+in `extractPublicKey()`.
+
+- `RealPollarClient.createWallet` now returns real Stellar G-addresses
+  with `real: true`.
+- The live demo surfaces this on Screen 06 (Live Settlement) and Screen
+  07 (Receipt) via `/api/pollar-handoff`: a real Stellar testnet explorer
+  link when `real: true`, or an honest "Simulated" label if a future
+  call ever falls back (e.g. transient Stellar network issues, per
+  Pollar's own documented error codes).
 
 ## Adapter design
 

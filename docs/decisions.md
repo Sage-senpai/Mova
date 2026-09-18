@@ -97,9 +97,9 @@ server-side only (Vercel production env var, `.env.local` locally,
 never committed, never sent to the browser).
 **Why**: Matches Pollar's actual architecture rather than pretending a
 secret key can do more than it can — see [pollar-integration.md](pollar-integration.md).
-**Status**: Accepted. Blocked on one external step (the app's Stellar
-funding wallet needs a testnet top-up via Pollar's dashboard) — tracked
-in [pollar-integration.md](pollar-integration.md) "Current status."
+**Status**: Accepted and confirmed working end to end (2026-09-18, after
+the app's Stellar funding wallet was topped up via Pollar's dashboard) —
+see [pollar-integration.md](pollar-integration.md) "Current status."
 
 ## ADR-007: x402 header names verified against the live spec before coding
 
