@@ -92,14 +92,30 @@ function HowItWorks() {
 }
 
 function RouteDiagram() {
+  const pathD = "M40 60 C 140 60, 140 150, 220 150 S 320 240, 360 240";
   return (
     <svg viewBox="0 0 400 300" className="h-full w-full max-w-md" fill="none">
-      <path
-        d="M40 60 C 140 60, 140 150, 220 150 S 320 240, 360 240"
-        stroke="url(#route-gradient)"
-        strokeWidth="1.5"
-        strokeDasharray="4 6"
-      />
+      {/* A quiet globe: three orbit rings, slowly rotating, centered behind
+          the route. Pure SVG/CSS, no new dependency — see docs/ui.md
+          "motion must explain system state," this is the one purely
+          atmospheric exception, kept faint so it reads as texture, not noise. */}
+      <g transform="translate(200 150)" opacity="0.35">
+        <g style={{ animation: "mova-globe-spin 60s linear infinite", transformOrigin: "0px 0px" }}>
+          <ellipse rx="150" ry="150" stroke="#8A8F98" strokeOpacity="0.18" />
+          <ellipse rx="150" ry="60" stroke="#8A8F98" strokeOpacity="0.16" />
+          <ellipse rx="150" ry="60" stroke="#8A8F98" strokeOpacity="0.16" transform="rotate(60)" />
+          <ellipse rx="150" ry="60" stroke="#8A8F98" strokeOpacity="0.16" transform="rotate(120)" />
+        </g>
+      </g>
+
+      <path d={pathD} stroke="url(#route-gradient)" strokeWidth="1.5" strokeDasharray="4 6" />
+
+      {/* A particle traveling the route, looping — the one animation on
+          this page that's tied to what the route actually represents. */}
+      <circle r="3" className="fill-signal">
+        <animateMotion dur="3.2s" repeatCount="indefinite" path={pathD} />
+      </circle>
+
       <circle cx="40" cy="60" r="5" className="fill-signal" />
       <text x="20" y="42" className="fill-mist text-[10px] uppercase tracking-wider">
         NG

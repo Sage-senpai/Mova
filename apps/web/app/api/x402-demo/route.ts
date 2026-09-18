@@ -21,6 +21,20 @@ import { build402Response, handleX402Payment, type X402PaymentRequirements } fro
 
 const ledger = new InMemoryLedger();
 
+/**
+ * In-memory request history backing /agents/monitor — same hackathon-scale
+ * simplification as InMemoryLedger (docs/architecture.md §2), just enough
+ * so that screen can show what actually happened here instead of static
+ * placeholder numbers. Resets on server restart/redeploy, same as ledger.
+ */
+type RequestRecord = {
+  amount: string;
+  decision: "PASS" | "BLOCK" | "REQUIRES_APPROVAL";
+  reason?: string;
+  at: string;
+};
+const requestHistory: RequestRecord[] = [];
+
 const AGENT: Agent = {
   id: newAgentId(),
   name: "Translation Bot",
@@ -83,5 +97,30 @@ export async function POST(request: Request) {
     },
   });
 
+  const body = response.body as { decision: "PASS" | "BLOCK" | "REQUIRES_APPROVAL"; reason?: string };
+  requestHistory.unshift({
+    amount: `$${REQUIREMENTS.amount}`,
+    decision: body.decision,
+    reason: body.reason,
+    at: new Date().toISOString(),
+  });
+  if (requestHistory.length > 50) requestHistory.length = 50;
+
   return NextResponse.json(response.body, { status: response.status, headers: response.headers });
+}
+
+/** Backs Screen 10 (Agent Monitor) with what this route actually decided,
+ * not decorative numbers — see docs/shared/gap-review.md Round 6. */
+export async function GET() {
+  const today = new Date().toISOString().slice(0, 10);
+  return NextResponse.json({
+    agentName: AGENT.name,
+    dailyLimit: POLICY.dailyLimit,
+    currency: POLICY.currency,
+    spentToday: ledger.getSpendToday(AGENT.id, today),
+    requests: requestHistory,
+    fulfilled: requestHistory.filter((r) => r.decision === "PASS").length,
+    blocked: requestHistory.filter((r) => r.decision === "BLOCK").length,
+    pending: requestHistory.filter((r) => r.decision === "REQUIRES_APPROVAL").length,
+  });
 }

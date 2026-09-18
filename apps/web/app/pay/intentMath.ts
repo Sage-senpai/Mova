@@ -36,12 +36,30 @@ const CURRENCY_CODE: Record<string, string> = {
 };
 
 /**
- * Same illustrative NGN:BOB ratio the mock rails use (see
- * packages/payment-rails/bank/src/index.ts's ILLUSTRATIVE_RATES) — kept in
- * sync here so the create-intent form's live auto-calculation and the
- * routing engine's quotes land in the same ballpark. Not a real FX rate.
+ * Fallback only. Same illustrative NGN:BOB ratio the mock rails use (see
+ * packages/payment-rails/bank/src/index.ts's ILLUSTRATIVE_RATES). Used
+ * only while the live rate (fetchLiveNgnBobRate below) hasn't loaded yet
+ * or failed — never presented as live when it isn't.
  */
 const ILLUSTRATIVE_NGN_BOB_RATE = 0.0133;
+
+/**
+ * A real, no-key-required exchange rate, replacing the hardcoded
+ * constant above. open.er-api.com is free and returns BOB in its NGN
+ * rate table (confirmed live 2026-09-18). Returns null on any failure —
+ * callers fall back to the illustrative rate and must label it as such.
+ */
+export async function fetchLiveNgnBobRate(): Promise<number | null> {
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/NGN");
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = data?.rates?.BOB;
+    return typeof rate === "number" && Number.isFinite(rate) && rate > 0 ? rate : null;
+  } catch {
+    return null;
+  }
+}
 
 function parseAmount(value: string): number {
   const n = Number.parseFloat(value.replace(/,/g, ""));
@@ -53,15 +71,15 @@ function formatAmount(n: number): string {
 }
 
 /** They-receive (BOB) from you-can-spend (NGN), for the create-intent form's
- * live two-way auto-calculation. Illustrative rate, not a real quote — the
- * real per-rail quote happens later in route discovery. */
-export function theyReceiveFromSpend(youCanSpendNgn: string): string {
-  return formatAmount(parseAmount(youCanSpendNgn) * ILLUSTRATIVE_NGN_BOB_RATE);
+ * live two-way auto-calculation. Pass the live rate once fetched; falls
+ * back to the illustrative constant otherwise. */
+export function theyReceiveFromSpend(youCanSpendNgn: string, rate: number = ILLUSTRATIVE_NGN_BOB_RATE): string {
+  return formatAmount(parseAmount(youCanSpendNgn) * rate);
 }
 
 /** The inverse of theyReceiveFromSpend, for editing the "they receive" field directly. */
-export function spendFromTheyReceive(theyReceiveBob: string): string {
-  return formatAmount(parseAmount(theyReceiveBob) / ILLUSTRATIVE_NGN_BOB_RATE);
+export function spendFromTheyReceive(theyReceiveBob: string, rate: number = ILLUSTRATIVE_NGN_BOB_RATE): string {
+  return formatAmount(parseAmount(theyReceiveBob) / rate);
 }
 
 /**

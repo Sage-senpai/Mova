@@ -14,6 +14,7 @@ import {
   buildIntent,
   demoNativeSendAmount,
   discoverRealRoutes,
+  fetchLiveNgnBobRate,
   formatEta,
   routeLabel,
   saveTransaction,
@@ -267,6 +268,27 @@ function CreateIntentStep({
   setDraft: (d: DraftIntent) => void;
   onContinue: () => void;
 }) {
+  const [liveRate, setLiveRate] = useState<number | null>(null);
+  const [rateStatus, setRateStatus] = useState<"loading" | "live" | "fallback">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLiveNgnBobRate().then((rate) => {
+      if (cancelled) return;
+      if (rate) {
+        setLiveRate(rate);
+        setRateStatus("live");
+      } else {
+        setRateStatus("fallback");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rate = liveRate ?? undefined;
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between">
@@ -277,6 +299,16 @@ function CreateIntentStep({
         Every field below is live. Change the name and amounts to whatever you want. Carlos and
         ₦150,000 are just a starting example, not a fixed demo.
       </p>
+      <div className="flex items-center gap-2">
+        <CapabilityBadge capability={rateStatus === "live" ? "SANDBOX" : "MOCK"} />
+        <span className="text-xs text-mist">
+          {rateStatus === "loading"
+            ? "Fetching live NGN/BOB rate…"
+            : rateStatus === "live"
+              ? `Live rate: 1 NGN ≈ ${liveRate!.toFixed(5)} BOB (open.er-api.com)`
+              : "Live rate unavailable, using an illustrative rate"}
+        </span>
+      </div>
 
       <div>
         <label className="text-xs uppercase tracking-wider text-mist">Recipient</label>
@@ -312,7 +344,11 @@ function CreateIntentStep({
               className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
               value={draft.theyReceive}
               onChange={(e) =>
-                setDraft({ ...draft, theyReceive: e.target.value, youCanSpend: spendFromTheyReceive(e.target.value) })
+                setDraft({
+                  ...draft,
+                  theyReceive: e.target.value,
+                  youCanSpend: spendFromTheyReceive(e.target.value, rate),
+                })
               }
             />
           </div>
@@ -327,7 +363,11 @@ function CreateIntentStep({
               className="w-full bg-transparent text-xl text-paper outline-none focus:border-signal"
               value={draft.youCanSpend}
               onChange={(e) =>
-                setDraft({ ...draft, youCanSpend: e.target.value, theyReceive: theyReceiveFromSpend(e.target.value) })
+                setDraft({
+                  ...draft,
+                  youCanSpend: e.target.value,
+                  theyReceive: theyReceiveFromSpend(e.target.value, rate),
+                })
               }
             />
           </div>

@@ -21,3 +21,13 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Landing page globe backdrop (app/page.tsx RouteDiagram) — defined here
+   explicitly rather than relying on Tailwind's animate-spin utility, since
+   nothing else in the app uses that utility and Tailwind only emits
+   keyframes it can see referenced. */
+@keyframes mova-globe-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
