@@ -9,15 +9,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mova/agent-payments-x402": "workspace:*",
     "@mova/domain": "workspace:*",
-    "@mova/routing-engine": "workspace:*",
-    "@mova/policy-engine": "workspace:*",
     "@mova/ledger": "workspace:*",
     "@mova/payment-rails-bank": "workspace:*",
     "@mova/payment-rails-p2p": "workspace:*",
     "@mova/payment-rails-stablecoin": "workspace:*",
+    "@mova/policy-engine": "workspace:*",
+    "@mova/routing-engine": "workspace:*",
     "@mova/settlement-pollar": "workspace:*",
-    "@mova/agent-payments-x402": "workspace:*",
     "@mova/ui": "workspace:*",
     "next": "^15.0.0",
     "react": "^19.0.0",
