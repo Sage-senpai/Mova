@@ -3,6 +3,16 @@ import assert from "node:assert/strict";
 import { newIntentId, newRecipientId, newUserId } from "@mova/domain";
 import type { PaymentIntent } from "@mova/domain";
 import { PollarSettlementAdapter } from "./pollarSettlementAdapter.js";
+import { SimulatedPollarClient } from "./pollarClient.js";
+
+// These tests assert MOCK-specific behavior, so they inject a
+// SimulatedPollarClient explicitly rather than relying on
+// createPollarClient()'s POLLAR_SECRET_KEY-based default — that keeps
+// them deterministic regardless of the ambient environment (e.g. a
+// developer running tests locally with a real secret key exported).
+function makeMockAdapter(): PollarSettlementAdapter {
+  return new PollarSettlementAdapter({ client: new SimulatedPollarClient() });
+}
 
 function makeIntent(): PaymentIntent {
   return {
@@ -17,14 +27,14 @@ function makeIntent(): PaymentIntent {
 }
 
 test("capability is never reported as REAL or bare SANDBOX under simulated conditions", () => {
-  const adapter = new PollarSettlementAdapter();
+  const adapter = makeMockAdapter();
   assert.notEqual(adapter.capability, "REAL");
   assert.notEqual(adapter.capability, "SANDBOX");
   assert.equal(adapter.capability, "MOCK");
 });
 
 test("getQuote round-trips through the simulator and flags the BOB leg honestly", async () => {
-  const adapter = new PollarSettlementAdapter();
+  const adapter = makeMockAdapter();
   const intent = makeIntent();
 
   const quote = await adapter.getQuote(intent);
@@ -38,7 +48,7 @@ test("getQuote round-trips through the simulator and flags the BOB leg honestly"
 });
 
 test("createTransfer + getStatus progress the same way the underlying simulator does", async () => {
-  const adapter = new PollarSettlementAdapter();
+  const adapter = makeMockAdapter();
   const intent = makeIntent();
   const quote = await adapter.getQuote(intent);
 
@@ -56,7 +66,7 @@ test("createTransfer + getStatus progress the same way the underlying simulator 
 });
 
 test("createTransfer rejects a quote this adapter did not produce", async () => {
-  const adapter = new PollarSettlementAdapter();
+  const adapter = makeMockAdapter();
   const intent = makeIntent();
   const quote = await adapter.getQuote(intent);
   const foreignQuote = { ...quote, metadata: {} };
@@ -65,6 +75,17 @@ test("createTransfer rejects a quote this adapter did not produce", async () => 
 });
 
 test("getStatus rejects unknown transfer ids", async () => {
-  const adapter = new PollarSettlementAdapter();
+  const adapter = makeMockAdapter();
   await assert.rejects(() => adapter.getStatus("unknown-transfer-id"));
+});
+
+test("capability reports SANDBOX once wired to a client in REAL mode, independent of whether a given call succeeds", async () => {
+  // A RealPollarClient with a bad key still reports mode "REAL" (it's
+  // genuinely wired and attempting live calls) — capability describes
+  // that wiring, not any single call's outcome. See pollarSettlementAdapter.ts.
+  const { RealPollarClient } = await import("./pollarClient.js");
+  const adapter = new PollarSettlementAdapter({
+    client: new RealPollarClient("sec_testnet_definitely_invalid_0000000000"),
+  });
+  assert.equal(adapter.capability, "SANDBOX");
 });

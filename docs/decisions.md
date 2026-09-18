@@ -67,12 +67,39 @@ would notice.
 **Context**: [open-source-research.md](open-source-research.md) found no
 primary-source confirmation from Pollar that a BOB/Bolivia corridor
 exists in their product; only third-party hackathon repos claim it.
+Confirmed independently on 2026-09-17 by the Pollar hackathon admin in
+the event Telegram: "for the hackathon, mock the final BOB payout. What
+we evaluate is that your Nigerian path exists, works and hands off
+cleanly to Pollar."
 **Decision**: The Pollar settlement adapter's Bolivia leg ships labeled
 `SEMI_MANUAL` (or `MOCK` if no manual step is demonstrable), never `REAL`
-or even `SANDBOX`, regardless of demo pressure to claim otherwise.
+or even `SANDBOX`, regardless of demo pressure to claim otherwise. The
+NGN→Pollar hand-off itself (wallet creation/funding) is the part that
+must be real — see [pollar-integration.md](pollar-integration.md).
 **Why**: [security.md](security.md) §honesty — MOVA does not fabricate
 provider capability for a better demo.
 **Status**: Accepted. Owner: Pollar Engineer, cross-checked by Architect.
+
+## ADR-008: Real Pollar wallet creation/funding, secret key server-side only
+
+**Context**: Real testnet credentials (`pub_testnet_...` / `sec_testnet_...`)
+were obtained 2026-09-17. Pollar's own Security Model doc confirms the
+secret key can only perform a narrow set of headless operations (user
+registration, wallet creation, wallet funding, token verification) —
+never sending funds or reading transaction history, which require a
+live user-signed client session.
+**Decision**: `packages/settlement/pollar`'s `RealPollarClient` calls
+Pollar's live Server API (`server.api.pollar.xyz`) for wallet creation
+and funding only. Every other operation (quote, send, status) stays on
+`SimulatedPollarClient`, and every result carries an explicit `real:
+boolean` field rather than being inferred. `POLLAR_SECRET_KEY` is
+server-side only (Vercel production env var, `.env.local` locally,
+never committed, never sent to the browser).
+**Why**: Matches Pollar's actual architecture rather than pretending a
+secret key can do more than it can — see [pollar-integration.md](pollar-integration.md).
+**Status**: Accepted. Blocked on one external step (the app's Stellar
+funding wallet needs a testnet top-up via Pollar's dashboard) — tracked
+in [pollar-integration.md](pollar-integration.md) "Current status."
 
 ## ADR-007: x402 header names verified against the live spec before coding
 

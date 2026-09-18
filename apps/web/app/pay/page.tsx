@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BigAmount, Button, CapabilityBadge, Field, RouteHops } from "@mova/ui";
-import type { PaymentState, Route } from "@mova/domain";
+import type { Capability } from "@mova/ui";
+import type { PaymentIntent, PaymentState, Route } from "@mova/domain";
 import { canTransition } from "@mova/domain";
 import { TopNav } from "../components/TopNav";
 import {
@@ -17,6 +18,22 @@ import {
 } from "./intentMath";
 
 type Step = "create" | "discovering" | "routes" | "authorize" | "settlement" | "receipt";
+
+type PollarHandoff = {
+  status: "idle" | "loading" | "done" | "error";
+  real: boolean;
+  capability: Capability | null;
+  providerRef: string | null;
+  explorerUrl: string | null;
+};
+
+const IDLE_HANDOFF: PollarHandoff = {
+  status: "idle",
+  real: false,
+  capability: null,
+  providerRef: null,
+  explorerUrl: null,
+};
 
 const SETTLEMENT_STEPS: { state: PaymentState; label: string }[] = [
   { state: "FUNDING", label: "Funding" },
@@ -32,18 +49,21 @@ export default function PayPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [intentId, setIntentId] = useState<string>("");
+  const [intent, setIntent] = useState<PaymentIntent | null>(null);
   const [expirySeconds, setExpirySeconds] = useState(30);
   const [paymentState, setPaymentState] = useState<PaymentState>("CREATED");
+  const [pollarHandoff, setPollarHandoff] = useState<PollarHandoff>(IDLE_HANDOFF);
 
   const selectedRoute = routes.find((r) => r.id === selectedRouteId) ?? routes[0];
 
   async function handleCreate() {
     setStep("discovering");
-    const intent = buildIntent(draft);
-    setIntentId(intent.id);
+    const builtIntent = buildIntent(draft);
+    setIntent(builtIntent);
+    setIntentId(builtIntent.id);
     // Real @mova/routing-engine scoring against the three MOCK rail
     // implementations — not a simplified re-derivation of that logic.
-    const found = await discoverRealRoutes(intent);
+    const found = await discoverRealRoutes(builtIntent);
     setRoutes(found);
     setSelectedRouteId(found[0]?.id ?? null);
     setPaymentState("QUOTED");
@@ -59,6 +79,38 @@ export default function PayPage() {
     }, 1000);
     return () => clearInterval(id);
   }, [step]);
+
+  // The real Pollar hand-off: fires once per settlement, independent of
+  // the settlement-state-machine playback timer below. Hits
+  // /api/pollar-handoff, which runs the actual PollarSettlementAdapter —
+  // see docs/pollar-integration.md for exactly what is and isn't real.
+  useEffect(() => {
+    if (step !== "settlement" || !intent) return;
+    let cancelled = false;
+    setPollarHandoff({ ...IDLE_HANDOFF, status: "loading" });
+    fetch("/api/pollar-handoff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intent }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        setPollarHandoff({
+          status: "done",
+          real: Boolean(data.real),
+          capability: data.capability ?? null,
+          providerRef: data.providerRef ?? null,
+          explorerUrl: data.explorerUrl ?? null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setPollarHandoff({ ...IDLE_HANDOFF, status: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, intent]);
 
   // Settlement state machine playback
   useEffect(() => {
@@ -135,11 +187,16 @@ export default function PayPage() {
         )}
 
         {step === "settlement" && selectedRoute && (
-          <SettlementStep draft={draft} paymentState={paymentState} activeHopIndex={activeHopIndex} />
+          <SettlementStep
+            draft={draft}
+            paymentState={paymentState}
+            activeHopIndex={activeHopIndex}
+            pollarHandoff={pollarHandoff}
+          />
         )}
 
         {step === "receipt" && selectedRoute && (
-          <ReceiptStep draft={draft} route={selectedRoute} intentId={intentId} />
+          <ReceiptStep draft={draft} route={selectedRoute} intentId={intentId} pollarHandoff={pollarHandoff} />
         )}
       </main>
     </div>
@@ -330,10 +387,12 @@ function SettlementStep({
   draft,
   paymentState,
   activeHopIndex,
+  pollarHandoff,
 }: {
   draft: DraftIntent;
   paymentState: PaymentState;
   activeHopIndex: number;
+  pollarHandoff: PollarHandoff;
 }) {
   const hopLabels = ["Nigeria", "MOVA", "Pollar", "Bolivia"];
   const hops = hopLabels.map((label, i) => ({
@@ -351,6 +410,42 @@ function SettlementStep({
       <p className="font-mono text-sm uppercase tracking-[0.2em] text-signal">
         {paymentState.replace(/_/g, " ")}
       </p>
+      <PollarHandoffStatus handoff={pollarHandoff} />
+    </div>
+  );
+}
+
+/** Shows the real (or honestly-labeled simulated) Pollar hand-off as it
+ * resolves — this is the actual PollarSettlementAdapter call, not a
+ * decorative status line. See app/api/pollar-handoff/route.ts. */
+function PollarHandoffStatus({ handoff }: { handoff: PollarHandoff }) {
+  if (handoff.status === "idle" || handoff.status === "loading") {
+    return <p className="text-xs text-mist">Handing off to Pollar…</p>;
+  }
+  if (handoff.status === "error") {
+    return <p className="text-xs text-err">Pollar hand-off request failed.</p>;
+  }
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-2">
+        <CapabilityBadge capability={handoff.capability ?? "MOCK"} />
+        <span className="text-xs text-mist">
+          {handoff.real ? "Real Stellar testnet wallet via Pollar" : "Simulated Pollar wallet"}
+        </span>
+      </div>
+      {handoff.providerRef ? (
+        <p className="font-mono text-xs text-paper">{handoff.providerRef}</p>
+      ) : null}
+      {handoff.explorerUrl ? (
+        <a
+          href={handoff.explorerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-signal underline underline-offset-2"
+        >
+          View on Stellar testnet explorer →
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -359,10 +454,12 @@ function ReceiptStep({
   draft,
   route,
   intentId,
+  pollarHandoff,
 }: {
   draft: DraftIntent;
   route: Route;
   intentId: string;
+  pollarHandoff: PollarHandoff;
 }) {
   return (
     <div className="flex flex-col gap-8 text-center">
@@ -390,6 +487,30 @@ function ReceiptStep({
         <CapabilityBadge capability="MOCK" />
         <span className="text-xs text-mist">Mock rail quote — see docs/architecture.md §8</span>
       </div>
+
+      {pollarHandoff.status === "done" ? (
+        <div className="mx-auto flex flex-col items-center gap-2 rounded-md border border-white/10 bg-panel p-4">
+          <div className="flex items-center gap-2">
+            <CapabilityBadge capability={pollarHandoff.capability ?? "MOCK"} />
+            <span className="text-xs text-mist">Pollar hand-off</span>
+          </div>
+          {pollarHandoff.providerRef ? (
+            <p className="font-mono text-xs text-paper">{pollarHandoff.providerRef}</p>
+          ) : null}
+          {pollarHandoff.explorerUrl ? (
+            <a
+              href={pollarHandoff.explorerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-signal underline underline-offset-2"
+            >
+              View real Stellar testnet wallet →
+            </a>
+          ) : (
+            <span className="text-xs text-mist">Simulated — see docs/pollar-integration.md</span>
+          )}
+        </div>
+      ) : null}
 
       <div className="flex justify-center gap-4">
         <Link

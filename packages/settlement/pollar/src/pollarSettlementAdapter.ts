@@ -51,13 +51,14 @@ export class PollarSettlementAdapter implements PaymentRail {
    * comment; ADR-006: the Bolivia leg — and by extension this whole
    * rail's default posture — must never overstate what's real).
    *
-   * This resolves to "SANDBOX" only when `this.client.mode === "REAL"`,
-   * which requires an actual `@pollar/core` client wired to live testnet
-   * credentials. `createPollarClient()` never produces that in this
-   * build, so `capability` always reports "MOCK" at runtime today. It is
-   * structured to flip to "SANDBOX" automatically the moment a real
-   * client is wired in — nobody should ever hardcode "SANDBOX" here to
-   * make a demo look further along than it is.
+   * Resolves to "SANDBOX" once `POLLAR_SECRET_KEY` is configured (see
+   * pollarClient.ts's `createPollarClient()`), meaning wallet creation is
+   * genuinely calling Pollar's live Server API — not merely that every
+   * call happens to succeed. A specific `createTransfer` call can still
+   * fall back to a simulated wallet if Pollar's API errors (see
+   * `RealPollarClient.createWallet`); that per-call outcome is carried on
+   * `Transfer.providerRef` (a real G-address vs. a `simtx_` ref), not
+   * here — `capability` describes the rail's wiring, not any one call.
    */
   get capability(): PaymentRail["capability"] {
     return this.client.mode === "REAL" ? "SANDBOX" : "MOCK";
@@ -107,7 +108,18 @@ export class PollarSettlementAdapter implements PaymentRail {
       );
     }
 
+    // This is the actual "hands off to Pollar" moment: with a real
+    // POLLAR_SECRET_KEY configured, this genuinely creates (and funds) a
+    // Stellar testnet wallet via Pollar's live Server API — verifiable
+    // independently on a testnet explorer. See pollarClient.ts for
+    // exactly what is and isn't real about the call that follows.
     const wallet = await this.client.createWallet(intent.recipient.recipientId);
+    if (wallet.real) {
+      console.log(
+        `[@mova/settlement-pollar] Real Pollar-created Stellar testnet wallet: ${wallet.address}`,
+      );
+    }
+
     const sent = await this.client.sendUsdc({
       quoteRef: pollarQuoteRef,
       destinationAddress: wallet.address,
@@ -125,7 +137,11 @@ export class PollarSettlementAdapter implements PaymentRail {
       status: toTransferStatus(sent.status),
       createdAt: now,
       updatedAt: now,
-      providerRef: sent.transferRef,
+      // The recipient's real Stellar address when wallet creation genuinely
+      // succeeded against Pollar's live API, so callers/UI can show and
+      // link out to real, independently-verifiable testnet proof — falls
+      // back to the (simulated) transfer ref otherwise.
+      providerRef: wallet.real ? wallet.address : sent.transferRef,
     };
     return transfer;
   }
